@@ -1,25 +1,23 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Frontend
+frontend/node_modules/
+frontend/.env
+frontend/dist/
 
-node_modules
-.env
-dist
-dist-ssr
+# Backend
+backend/vendor/
+backend/.env
+backend/storage/logs/*.log
+backend/storage/*.key
+backend/.phpunit.result.cache
+backend/bootstrap/cache/*.php
+
+# Temp / editors
 *.local
-
-# Editor directories and files
+.DS_Store
+.idea/
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+Thumbs.db
 *.suo
-*.ntvs*
-*.njsproj
 *.sln
 *.sw?
