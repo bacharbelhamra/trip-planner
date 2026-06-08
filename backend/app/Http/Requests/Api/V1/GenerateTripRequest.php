@@ -15,6 +15,7 @@ class GenerateTripRequest extends FormRequest
             'days'        => 'required|integer|min:1|max:14',
             'budget'      => 'required|in:cheap,moderate,luxury',
             'travelers'   => 'required|in:solo,couple,family,friends',
+            'start_date'  => 'nullable|date',
         ];
     }
 }

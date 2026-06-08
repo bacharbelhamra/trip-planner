@@ -1,18 +1,29 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { IconArrowRight, IconCheck, IconRoute, IconMap, IconHome, IconMapPin, IconCalendar, IconWallet, IconHeart, IconWalking } from '../components/icons';
 import { Button, Badge, Card, CoverPhoto, cx } from '../components/ui';
+import { fetchSinglePhoto } from '../services/unsplash';
 
 const POPULAR = [
-  { kind: 'paris', name: 'Paris', country: 'France', days: 3 },
-  { kind: 'tokyo', name: 'Tokyo', country: 'Japan', days: 7 },
-  { kind: 'nyc', name: 'New York City', country: 'USA', days: 4 },
-  { kind: 'lisbon', name: 'Lisbon', country: 'Portugal', days: 5 },
-  { kind: 'iceland', name: 'Reykjavík', country: 'Iceland', days: 6 },
-  { kind: 'rome', name: 'Rome', country: 'Italy', days: 3 },
+  { kind: 'paris',   name: 'Paris',        country: 'France',   flag: '🇫🇷', days: 3 },
+  { kind: 'tokyo',   name: 'Tokyo',         country: 'Japan',    flag: '🇯🇵', days: 7 },
+  { kind: 'nyc',     name: 'New York City', country: 'USA',      flag: '🇺🇸', days: 4 },
+  { kind: 'lisbon',  name: 'Lisbon',        country: 'Portugal', flag: '🇵🇹', days: 5 },
+  { kind: 'iceland', name: 'Reykjavík',     country: 'Iceland',  flag: '🇮🇸', days: 6 },
+  { kind: 'rome',    name: 'Rome',          country: 'Italy',    flag: '🇮🇹', days: 3 },
 ];
 
 export default function Home() {
   const navigate = useNavigate();
+  const [popularPhotos, setPopularPhotos] = useState({});
+
+  useEffect(() => {
+    POPULAR.forEach((d, i) => {
+      fetchSinglePhoto(`${d.name} ${d.country} travel`, `popular:${d.name}`)
+        .then(url => { if (url) setPopularPhotos(prev => ({ ...prev, [i]: url })); });
+    });
+  }, []);
+
   return (
     <div>
       {/* HERO */}
@@ -84,10 +95,13 @@ export default function Home() {
           <div className="mt-24">
             <div className="label-xs text-gray-500 dark:text-gray-400 mb-4">Popular this week</div>
             <div className="flex gap-3 overflow-x-auto nice-scroll pb-2 -mx-2 px-2">
-              {POPULAR.map(d => (
-                <button key={d.kind} onClick={() => navigate('/create-trip')} className="shrink-0 w-[220px] text-left">
-                  <CoverPhoto kind={d.kind} className="h-[140px] rounded-xl">
-                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 to-transparent" />
+              {POPULAR.map((d, i) => (
+                <button key={d.kind}
+                  onClick={() => navigate('/create-trip', { state: { destination: { city: d.name, country: d.country, flag: d.flag } } })}
+                  className="shrink-0 w-[220px] text-left">
+                  <CoverPhoto src={popularPhotos[i] ?? null} kind={d.kind} className="h-[140px] rounded-xl">
+                    <div className="absolute inset-0 pointer-events-none"
+                      style={{ background: 'linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.75) 100%)' }} />
                     <div className="absolute bottom-3 left-3 right-3">
                       <div className="text-white font-medium text-[15px]">{d.name}</div>
                       <div className="text-white/70 text-[12px]">{d.country} · {d.days} days</div>

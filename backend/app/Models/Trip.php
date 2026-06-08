@@ -9,9 +9,9 @@ class Trip extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'destination', 'days', 'budget', 'travelers', 'cover_image', 'trip_data'];
+    protected $fillable = ['user_id', 'destination', 'days', 'budget', 'travelers', 'start_date', 'cover_image', 'trip_data'];
 
-    protected $casts = ['trip_data' => 'array'];
+    protected $casts = ['trip_data' => 'array', 'start_date' => 'date:Y-m-d'];
 
     public function user()
     {

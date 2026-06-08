@@ -16,6 +16,7 @@ class TripResource extends JsonResource
             'budget'      => $this->budget,
             'travelers'   => $this->travelers,
             'cover_image' => $this->cover_image,
+            'start_date'  => $this->start_date?->format('Y-m-d'),
             'trip_data'   => $this->trip_data,
             'created_at'  => $this->created_at->toISOString(),
         ];

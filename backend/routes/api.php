@@ -18,9 +18,10 @@ Route::prefix('v1')->group(function () {
         Route::middleware('throttle:10,1')
              ->post('/trips/generate', [TripController::class, 'generate']);
 
-        Route::get('/trips',            [TripController::class, 'index']);
-        Route::post('/trips',           [TripController::class, 'store']);
-        Route::get('/trips/{trip}',     [TripController::class, 'show']);
-        Route::delete('/trips/{trip}',  [TripController::class, 'destroy']);
+        Route::get('/trips',                       [TripController::class, 'index']);
+        Route::post('/trips',                      [TripController::class, 'store']);
+        Route::get('/trips/{trip}',                [TripController::class, 'show']);
+        Route::patch('/trips/{trip}/photos',       [TripController::class, 'updatePhotos']);
+        Route::delete('/trips/{trip}',             [TripController::class, 'destroy']);
     });
 });

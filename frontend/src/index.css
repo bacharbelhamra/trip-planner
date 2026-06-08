@@ -1,3 +1,5 @@
+@import 'react-day-picker/style.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -142,3 +144,45 @@ input[type=range].vio::-webkit-slider-thumb {
 
 /* Leaflet overrides */
 .leaflet-container { z-index: 0; }
+
+/* ───── DayPicker theme ───── */
+.rdp-root {
+  --rdp-accent-color: #534AB7;
+  --rdp-accent-background-color: rgba(83, 74, 183, 0.12);
+  --rdp-day-height: 36px;
+  --rdp-day-width: 36px;
+  --rdp-day_button-height: 34px;
+  --rdp-day_button-width: 34px;
+  --rdp-nav_button-height: 32px;
+  --rdp-nav_button-width: 32px;
+  --rdp-nav-height: 40px;
+  font-size: 13px;
+}
+/* Filled selection (v10 default is border-only) */
+.rdp-selected .rdp-day_button {
+  background-color: var(--rdp-accent-color) !important;
+  color: white !important;
+  border-color: var(--rdp-accent-color) !important;
+}
+/* Nav button borders */
+.rdp-button_next, .rdp-button_previous {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+.rdp-button_next:hover:not(:disabled),
+.rdp-button_previous:hover:not(:disabled) {
+  background-color: #f3f4f6;
+}
+/* Dark mode */
+.dark .rdp-root {
+  color: #e5e7eb;
+  --rdp-accent-color: #7c6deb;
+  --rdp-today-color: #a78bfa;
+}
+.dark .rdp-button_next, .dark .rdp-button_previous {
+  border-color: #374151;
+}
+.dark .rdp-button_next:hover:not(:disabled),
+.dark .rdp-button_previous:hover:not(:disabled) {
+  background-color: #374151;
+}

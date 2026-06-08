@@ -53,6 +53,7 @@ class TripController extends Controller
             'days'        => $data['days'],
             'budget'      => $data['budget'],
             'travelers'   => $data['travelers'],
+            'start_date'  => $data['start_date'] ?? null,
             'cover_image' => $coverImage,
             'trip_data'   => $tripData,
         ]);
@@ -67,12 +68,41 @@ class TripController extends Controller
             'days'        => 'required|integer|min:1|max:14',
             'budget'      => 'required|in:cheap,moderate,luxury',
             'travelers'   => 'required|in:solo,couple,family,friends',
+            'start_date'  => 'nullable|date',
             'trip_data'   => 'nullable|array',
             'cover_image' => 'nullable|string',
         ]);
 
         $trip = $request->user()->trips()->create($validated);
         return response()->json(new TripResource($trip), 201);
+    }
+
+    public function updatePhotos(Request $request, Trip $trip): JsonResponse
+    {
+        $this->authorizeOwnership($request, $trip);
+
+        $validated = $request->validate([
+            'hotels'        => 'nullable|array',
+            'hotels.*'      => 'nullable|string|max:500',
+            'restaurants'   => 'nullable|array',
+            'restaurants.*' => 'nullable|string|max:500',
+        ]);
+
+        $tripData = $trip->trip_data ?? [];
+
+        foreach (['hotels', 'restaurants'] as $key) {
+            if (!empty($validated[$key]) && !empty($tripData[$key])) {
+                foreach ($validated[$key] as $i => $url) {
+                    if (isset($tripData[$key][$i])) {
+                        $tripData[$key][$i]['photo_url'] = $url;
+                    }
+                }
+            }
+        }
+
+        $trip->update(['trip_data' => $tripData]);
+
+        return response()->json(['message' => 'Photos saved.']);
     }
 
     public function destroy(Request $request, Trip $trip): JsonResponse

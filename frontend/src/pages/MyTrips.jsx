@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { IconArrowRight, IconPlus, IconTrash, IconCalendar, IconWallet, IconHeart, IconGem, IconCompass, IconUser, IconUsers } from '../components/icons';
+import { IconArrowRight, IconPlus, IconTrash, IconCalendar, IconMapPin, IconWallet, IconHeart, IconGem, IconCompass, IconUser, IconUsers } from '../components/icons';
 import { Button, Badge, Card, CoverPhoto, ConfirmDialog, cx } from '../components/ui';
 import apiClient from '../services/apiClient';
 
@@ -9,6 +9,7 @@ export default function MyTrips() {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState(null);
+  const [filter, setFilter] = useState('all');
 
   useEffect(() => {
     apiClient.get('/trips')
@@ -55,6 +56,41 @@ export default function MyTrips() {
     );
   }
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const getSevenDaysAfterCreation = (trip) => {
+    const created = new Date(trip.created_at);
+    created.setDate(created.getDate() + 7);
+    return created;
+  };
+
+  const filteredTrips = trips.filter(trip => {
+    if (filter === 'all') return true;
+    if (trip.start_date) {
+      const tripDate = new Date(trip.start_date);
+      tripDate.setHours(0, 0, 0, 0);
+      if (filter === 'upcoming') return tripDate >= today;
+      if (filter === 'past') return tripDate < today;
+    } else {
+      const expiresAt = getSevenDaysAfterCreation(trip);
+      if (filter === 'upcoming') return expiresAt >= today;
+      if (filter === 'past') return expiresAt < today;
+    }
+    return true;
+  });
+
+  const FILTERS = [
+    { id: 'all',      label: 'All' },
+    { id: 'upcoming', label: 'Upcoming' },
+    { id: 'past',     label: 'Past' },
+  ];
+
+  const EMPTY_STATES = {
+    upcoming: { text: 'No upcoming trips. Plan your next adventure!' },
+    past:     { text: 'No past trips yet.' },
+  };
+
   return (
     <div className="bg-gray-50 dark:bg-ink min-h-[calc(100vh-64px)]">
       <div className="max-w-7xl mx-auto px-6 py-12">
@@ -68,11 +104,38 @@ export default function MyTrips() {
           <Button variant="primary" onClick={() => navigate('/create-trip')}><IconPlus size={14} /> New Trip</Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-6">
-          {trips.map(trip => (
-            <TripCard key={trip.id} trip={trip} navigate={navigate} onDelete={() => setConfirm(trip)} />
+        <div className="flex items-center gap-2 mt-5">
+          {FILTERS.map(f => (
+            <button key={f.id} onClick={() => setFilter(f.id)}
+              className={cx('h-8 px-4 rounded-full text-[13px] font-medium transition-colors',
+                filter === f.id
+                  ? 'bg-primary text-white'
+                  : 'bg-white dark:bg-carddark border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-primary hover:text-primary')}>
+              {f.label}
+            </button>
           ))}
         </div>
+
+        {filteredTrips.length === 0 && filter !== 'all' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', marginTop: '80px', color: '#94a3b8', fontSize: '15px' }}>
+            <div style={{ color: '#6366f1', opacity: 0.6 }}>
+              {filter === 'upcoming' && <IconMapPin size={48} />}
+              {filter === 'past'     && <IconCalendar size={48} />}
+            </div>
+            <span>{EMPTY_STATES[filter]?.text}</span>
+            {filter === 'upcoming' && (
+              <Button variant="primary" size="md" className="mt-2" onClick={() => navigate('/create-trip')}>
+                Plan a trip <IconArrowRight size={14} />
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-6">
+            {filteredTrips.map(trip => (
+              <TripCard key={trip.id} trip={trip} navigate={navigate} onDelete={() => setConfirm(trip)} />
+            ))}
+          </div>
+        )}
       </div>
 
       <ConfirmDialog

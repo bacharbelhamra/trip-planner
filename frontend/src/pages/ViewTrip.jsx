@@ -2,21 +2,23 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { jsPDF } from 'jspdf';
 import {
   IconArrowLeft, IconCalendar, IconWallet, IconHeart, IconClock,
   IconMapPin, IconStar, IconExternal, IconWalking, IconHome,
-  IconUtensils, IconLayers, IconDownload, IconSparkles,
+  IconUtensils, IconLayers, IconSparkles, IconCompass, IconRoute,
 } from '../components/icons';
 import { Button, Badge, Card, CoverPhoto, cx } from '../components/ui';
 import apiClient from '../services/apiClient';
+import { fetchCategoryPhotos } from '../services/unsplash';
 
-function makeIcon(label, color = '#534AB7') {
+const photosSaved = new Set();
+
+function makeIcon(label, color = '#534AB7', size = 32) {
   return L.divIcon({
     className: '',
-    html: `<div style="background:${color};color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">${label}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    html: `<div style="background:${color};color:#fff;width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${Math.round(size * 0.42)}px;font-weight:600;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">${label}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -28,6 +30,37 @@ function FlyToPin({ pin }) {
   return null;
 }
 
+async function fetchOsrmSegment(from, to) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.routes?.[0]) {
+      return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+    }
+  } catch (_) {}
+  return [from, to]; // fallback: straight line
+}
+
+function OsrmRoutes({ points }) {
+  const [segments, setSegments] = useState([]);
+  const pointsKey = JSON.stringify(points);
+
+  useEffect(() => {
+    if (!points || points.length < 2) { setSegments([]); return; }
+    let cancelled = false;
+    const pairs = points.slice(0, -1).map((p, i) => [p, points[i + 1]]);
+    Promise.all(pairs.map(([a, b]) => fetchOsrmSegment(a, b))).then(segs => {
+      if (!cancelled) setSegments(segs);
+    });
+    return () => { cancelled = true; };
+  }, [pointsKey]);
+
+  return segments.map((seg, i) => (
+    <Polyline key={i} positions={seg} color="#534AB7" weight={3} opacity={0.8} dashArray="6,4" />
+  ));
+}
+
 export default function ViewTrip() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -36,6 +69,9 @@ export default function ViewTrip() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('schedule');
   const [activePin, setActivePin] = useState(null);
+  const [selectedCard, setSelectedCard] = useState(null);
+  const hotelMarkersRef = useRef({});
+  const restMarkersRef  = useRef({});
 
   useEffect(() => {
     if (!id) { navigate('/my-trips'); return; }
@@ -45,26 +81,21 @@ export default function ViewTrip() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const exportPDF = () => {
-    if (!trip) return;
-    const doc = new jsPDF();
-    doc.setFontSize(22);
-    doc.text(`${trip.destination} — ${trip.days} days`, 20, 20);
-    doc.setFontSize(12);
-    doc.text(`Budget: ${trip.budget} | Travelers: ${trip.travelers}`, 20, 32);
-    let y = 48;
-    (trip.trip_data?.days || []).forEach((day, di) => {
-      doc.setFontSize(14);
-      doc.text(`Day ${di + 1}: ${day.title || ''}`, 20, y); y += 10;
-      doc.setFontSize(11);
-      (day.activities || day.places || []).forEach(a => {
-        doc.text(`  • ${a.name || a.placeName} — ${a.time || ''}`, 20, y); y += 8;
-        if (y > 270) { doc.addPage(); y = 20; }
-      });
-      y += 4;
-    });
-    doc.save(`${trip.destination.replace(/\s+/g, '-')}-itinerary.pdf`);
-  };
+  // Reset selection and stale refs when tab changes
+  useEffect(() => {
+    setSelectedCard(null);
+    hotelMarkersRef.current = {};
+    restMarkersRef.current  = {};
+  }, [tab]);
+
+  // Open popup after flyTo finishes (~0.8 s)
+  useEffect(() => {
+    if (selectedCard === null) return;
+    const refs = tab === 'hotels' ? hotelMarkersRef : restMarkersRef;
+    const timer = setTimeout(() => refs.current[selectedCard]?.openPopup?.(), 900);
+    return () => clearTimeout(timer);
+  }, [selectedCard, tab]);
+
 
   if (loading) {
     return (
@@ -92,11 +123,12 @@ export default function ViewTrip() {
   const hotels = data.hotels || [];
   const restaurants = data.restaurants || [];
 
+  let _stopN = 0;
   const allScheduleItems = scheduleDays.flatMap((day, di) =>
-    (day.activities || day.places || []).map((a, ai) => ({
+    (day.activities || day.places || []).map((a) => ({
       ...a,
       dayIndex: di,
-      n: di * 20 + ai + 1,
+      n: ++_stopN,
       lat: a.geo?.lat || a.lat,
       lng: a.geo?.lng || a.lng,
     }))
@@ -132,9 +164,6 @@ export default function ViewTrip() {
               <Badge color="primary"><IconCalendar size={11} /> {trip.days} days</Badge>
               <Badge color="accent"><IconWallet size={11} /> {trip.budget}</Badge>
               <Badge color="highlight"><IconHeart size={11} /> {trip.travelers}</Badge>
-              <div className="ml-auto flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={exportPDF}><IconDownload size={13} /> PDF</Button>
-              </div>
             </div>
 
             <div className="mt-6 border-b border-gray-200 dark:border-gray-800">
@@ -150,10 +179,26 @@ export default function ViewTrip() {
             </div>
 
             <div className="mt-6">
-              {tab === 'schedule' && <Schedule days={scheduleDays} activePin={activePin} setActivePin={setActivePin} />}
-              {tab === 'hotels' && <CardGrid items={hotels} type="hotel" onCardClick={(i) => setActivePin({ type: 'hotel', i })} />}
-              {tab === 'restaurants' && <CardGrid items={restaurants} type="restaurant" onCardClick={(i) => setActivePin({ type: 'restaurant', i })} />}
+              <div style={{ display: tab === 'schedule' ? 'block' : 'none' }}>
+                <Schedule days={scheduleDays} activePin={activePin} setActivePin={setActivePin} />
+              </div>
+              <div style={{ display: tab === 'hotels' ? 'block' : 'none' }}>
+                <CardGrid items={hotels} type="hotel" city={trip.destination} tripId={trip.id} selectedIndex={selectedCard}
+                  onCardClick={(i, item) => {
+                    setSelectedCard(i);
+                    if (item.lat && item.lng) setActivePin({ lat: item.lat, lng: item.lng });
+                  }} />
+              </div>
+              <div style={{ display: tab === 'restaurants' ? 'block' : 'none' }}>
+                <CardGrid items={restaurants} type="restaurant" city={trip.destination} tripId={trip.id} selectedIndex={selectedCard}
+                  onCardClick={(i, item) => {
+                    setSelectedCard(i);
+                    if (item.lat && item.lng) setActivePin({ lat: item.lat, lng: item.lng });
+                  }} />
+              </div>
             </div>
+
+            <BudgetTracker trip={trip} />
           </div>
 
           {/* RIGHT — Sticky Map */}
@@ -164,8 +209,8 @@ export default function ViewTrip() {
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
                 />
-                {polylinePoints.length > 1 && (
-                  <Polyline positions={polylinePoints} color="#534AB7" weight={2} dashArray="6 5" opacity={0.7} />
+                {tab === 'schedule' && polylinePoints.length > 1 && (
+                  <OsrmRoutes points={polylinePoints} />
                 )}
                 {tab === 'schedule' && allScheduleItems.filter(i => i.lat && i.lng).map(item => (
                   <Marker key={item.n} position={[item.lat, item.lng]} icon={makeIcon(item.n, activePin?.n === item.n ? '#3C3489' : '#534AB7')}>
@@ -173,12 +218,18 @@ export default function ViewTrip() {
                   </Marker>
                 ))}
                 {tab === 'hotels' && hotels.filter(h => h.lat && h.lng).map((h, i) => (
-                  <Marker key={i} position={[h.lat, h.lng]} icon={makeIcon(<span style={{fontSize:10}}>🏨</span>, '#D97706')}>
+                  <Marker key={i}
+                    ref={el => { if (el) hotelMarkersRef.current[i] = el; }}
+                    position={[h.lat, h.lng]}
+                    icon={makeIcon('H', selectedCard === i ? '#6d28d9' : '#7c3aed', selectedCard === i ? 38 : 32)}>
                     <Popup><b>{h.name}</b><br />{h.area || ''}</Popup>
                   </Marker>
                 ))}
                 {tab === 'restaurants' && restaurants.filter(r => r.lat && r.lng).map((r, i) => (
-                  <Marker key={i} position={[r.lat, r.lng]} icon={makeIcon(<span style={{fontSize:10}}>🍽</span>, '#1D9E75')}>
+                  <Marker key={i}
+                    ref={el => { if (el) restMarkersRef.current[i] = el; }}
+                    position={[r.lat, r.lng]}
+                    icon={makeIcon('R', selectedCard === i ? '#6d28d9' : '#7c3aed', selectedCard === i ? 38 : 32)}>
                     <Popup><b>{r.name}</b><br />{r.cuisine || ''}</Popup>
                   </Marker>
                 ))}
@@ -240,6 +291,15 @@ function Schedule({ days, activePin, setActivePin }) {
                                 {item.description && (
                                   <p className="mt-1.5 text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed">{item.description}</p>
                                 )}
+                                <a
+                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name || item.placeName || '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={e => e.stopPropagation()}
+                                  className="mt-2 inline-flex items-center gap-1 text-[13px] transition-opacity hover:opacity-70"
+                                  style={{ color: '#a78bfa' }}>
+                                  <IconExternal size={13} /> View on Maps
+                                </a>
                               </div>
                               {(item.geo?.lat || item.lat) && (
                                 <Button variant="ghost" size="sm"
@@ -271,46 +331,200 @@ function Schedule({ days, activePin, setActivePin }) {
   );
 }
 
-function CardGrid({ items, type, onCardClick }) {
+const CARD_KINDS = ['paris', 'tokyo', 'lisbon', 'rome', 'iceland', 'nyc', 'default'];
+
+const PRICE_LABELS = {
+  '$': '$', 'budget': '$',
+  '$$': '$$', 'moderate': '$$',
+  '$$$': '$$$', 'luxury': '$$$',
+};
+const getPriceLabel = (p) =>
+  p ? (PRICE_LABELS[String(p).trim().toLowerCase()] ?? '$$') : '$$';
+
+function CardGrid({ items, type, city, tripId, onCardClick, selectedIndex }) {
+  const [photos, setPhotos] = useState(() => {
+    const map = {};
+    items?.forEach((item, i) => { if (item.photo_url) map[i] = item.photo_url; });
+    return map;
+  });
+
+  const category = type === 'hotel' ? 'hotel' : 'restaurant';
+
+  useEffect(() => {
+    if (!items || items.length === 0) return;
+    if (items.every(item => item.photo_url)) return; // all already in DB
+    let cancelled = false;
+    fetchCategoryPhotos(category, city || '', items.length).then(urls => {
+      if (cancelled) return;
+      const map = {};
+      urls.forEach((url, i) => { if (url) map[i] = url; });
+      setPhotos(map);
+      // persist to DB once per trip per type (fire-and-forget)
+      const saveKey = `${tripId}:${type}`;
+      if (tripId && urls.some(Boolean) && !photosSaved.has(saveKey)) {
+        photosSaved.add(saveKey);
+        apiClient.patch(`/trips/${tripId}/photos`, {
+          [type === 'hotel' ? 'hotels' : 'restaurants']: urls,
+        }).catch(() => {});
+      }
+    });
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!items || items.length === 0) {
     return <p className="text-gray-500 text-[14px]">No {type}s available.</p>;
   }
+
+  const formatPrice = (price) => {
+    if (!price) return null;
+    const p = String(price).trim();
+    if (p.includes('-')) {
+      const [lo, hi] = p.split('-').map(s => s.trim());
+      return `$${lo}–$${hi}`;
+    }
+    return `$${p}`;
+  };
+
   return (
     <div className="grid md:grid-cols-2 gap-4">
-      {items.map((item, i) => (
-        <Card key={i} className="overflow-hidden cursor-pointer hover:border-primary trip-card" onClick={() => onCardClick(i)}>
-          {item.image && (
-            <div className="h-[160px] overflow-hidden">
-              <img src={item.image} alt={item.name} className="w-full h-full object-cover trip-photo" />
+      {items.map((item, i) => {
+        const kind = CARD_KINDS[i % CARD_KINDS.length];
+        const mapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(item.name + (item.area ? ` ${item.area}` : ''))}`;
+        const priceFormatted = formatPrice(item.price);
+
+        return (
+          <Card key={i}
+            className={cx('overflow-hidden cursor-pointer trip-card transition-all',
+              selectedIndex === i ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary')}
+            onClick={() => onCardClick(i, item)}>
+            {/* Image / gradient cover */}
+            <CoverPhoto src={photos[i] ?? item.image ?? null} kind={kind} className="h-[180px]">
+              {(photos[i] ?? item.image) && (
+                <div className="absolute inset-0 pointer-events-none"
+                  style={{ background: 'linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.7) 100%)' }} />
+              )}
+            </CoverPhoto>
+
+            <div className="p-4">
+              {/* Name + price row */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15px] font-semibold text-gray-900 dark:text-white leading-snug">{item.name}</div>
+                  <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {type === 'hotel' ? (item.area || '') : (item.cuisine || '')}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  {type === 'hotel' && priceFormatted && (
+                    <>
+                      <div className="text-[13px] font-semibold text-gray-900 dark:text-white tabular-nums leading-tight">{priceFormatted}/night</div>
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500">per night</div>
+                    </>
+                  )}
+                  {type === 'restaurant' && (
+                    <span style={{ background: 'rgba(139,92,246,0.15)', color: '#a78bfa', fontSize: 11, borderRadius: 999, padding: '2px 10px', display: 'inline-block', whiteSpace: 'nowrap' }}>
+                      {getPriceLabel(item.priceRange)}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Rating */}
+              {item.rating && (
+                <div className="mt-2.5 flex items-center gap-1 text-[12px] text-gray-600 dark:text-gray-300">
+                  <IconStar size={12} style={{ fill: '#FBBF24', color: '#FBBF24' }} />
+                  <span className="tabular-nums font-medium">{item.rating}</span>
+                </div>
+              )}
+
+              {/* View on Maps */}
+              <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] transition-opacity hover:opacity-70"
+                style={{ color: '#a78bfa' }}>
+                <IconExternal size={13} /> View on Maps
+              </a>
             </div>
-          )}
-          <div className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[15px] font-medium text-gray-900 dark:text-white">{item.name}</div>
-                <div className="text-[12px] text-gray-500 dark:text-gray-400">{type === 'hotel' ? (item.area || '') : (item.cuisine || '')}</div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+const BUDGET_RANGES = {
+  cheap:    { min: 30,  max: 80,  label: 'Budget',   color: '#22c55e' },
+  moderate: { min: 120, max: 250, label: 'Moderate',  color: '#6366f1' },
+  luxury:   { min: 400, max: 800, label: 'Luxury',    color: '#f59e0b' },
+};
+
+const TRAVELER_COUNTS = { solo: 1, couple: 2, family: 4, friends: 3 };
+
+const CATEGORY_ROWS = [
+  { key: 'hotel',      label: 'Hotels',     Icon: IconHome,     pct: 0.40 },
+  { key: 'food',       label: 'Food',       Icon: IconUtensils, pct: 0.30 },
+  { key: 'activities', label: 'Activities', Icon: IconCompass,  pct: 0.20 },
+  { key: 'transport',  label: 'Transport',  Icon: IconRoute,    pct: 0.10 },
+];
+
+function fmt(n) {
+  return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`;
+}
+
+function BudgetTracker({ trip }) {
+  const range     = BUDGET_RANGES[trip.budget] ?? BUDGET_RANGES.moderate;
+  const travelers = TRAVELER_COUNTS[trip.travelers] ?? 1;
+  const days      = trip.days;
+  const totalMin  = range.min * days * travelers;
+  const totalMax  = range.max * days * travelers;
+
+  return (
+    <div className="mt-8">
+      <Card className="p-5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white">Estimated Budget</h3>
+          <span className="text-[20px] font-bold tabular-nums leading-tight" style={{ color: range.color }}>
+            {fmt(totalMin)} – {fmt(totalMax)}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-5">
+          <span className="inline-flex items-center h-6 px-2.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-600 dark:text-gray-300">
+            {fmt(Math.round(totalMin / travelers))} – {fmt(Math.round(totalMax / travelers))} per person
+          </span>
+          <span className="inline-flex items-center h-6 px-2.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-600 dark:text-gray-300">
+            {fmt(Math.round(totalMin / days))} – {fmt(Math.round(totalMax / days))} per day
+          </span>
+        </div>
+
+        <div className="space-y-3.5">
+          {CATEGORY_ROWS.map(({ key, label, Icon, pct }) => {
+            const min = Math.round(totalMin * pct);
+            const max = Math.round(totalMax * pct);
+            return (
+              <div key={key}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2 text-[13px] text-gray-600 dark:text-gray-300">
+                    <Icon size={14} style={{ color: range.color, opacity: 0.8 }} />
+                    <span>{label}</span>
+                  </div>
+                  <span className="text-[13px] font-medium tabular-nums text-gray-900 dark:text-white">
+                    {fmt(min)} – {fmt(max)}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                  <div className="h-full rounded-full transition-all"
+                    style={{ width: `${pct * 100}%`, background: range.color, opacity: 0.65 }} />
+                </div>
               </div>
-              <div className="text-right shrink-0">
-                {type === 'hotel' && item.price && (
-                  <>
-                    <div className="text-[14px] font-medium text-gray-900 dark:text-white tabular-nums">${item.price}</div>
-                    <div className="text-[11px] text-gray-500 dark:text-gray-400">per night</div>
-                  </>
-                )}
-                {type === 'restaurant' && item.priceRange && (
-                  <div className="text-[14px] font-medium text-gray-900 dark:text-white">{item.priceRange}</div>
-                )}
-              </div>
-            </div>
-            {item.rating && (
-              <div className="mt-3 flex items-center gap-1 text-[12px] text-gray-600 dark:text-gray-300">
-                <IconStar size={12} style={{ fill: '#FBBF24', color: '#FBBF24' }} />
-                <span className="tabular-nums font-medium">{item.rating}</span>
-              </div>
-            )}
-          </div>
-        </Card>
-      ))}
+            );
+          })}
+        </div>
+
+        <p className="mt-4 text-[11px] text-gray-400 dark:text-gray-500">
+          Estimates based on {range.label.toLowerCase()} travel style · {travelers} traveler{travelers !== 1 ? 's' : ''} · {days} day{days !== 1 ? 's' : ''}
+        </p>
+      </Card>
     </div>
   );
 }

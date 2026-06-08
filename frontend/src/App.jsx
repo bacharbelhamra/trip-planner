@@ -10,7 +10,11 @@ import MyTrips from './pages/MyTrips';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading && !user) return (
+    <div style={{ position: 'fixed', inset: 0, background: '#0f0f1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="animate-spin" style={{ width: 40, height: 40, border: '3px solid #7c3aed', borderTopColor: 'transparent', borderRadius: '50%' }} />
+    </div>
+  );
   if (!user) return <Navigate to="/auth" state={{ from: window.location.pathname }} replace />;
   return children;
 }

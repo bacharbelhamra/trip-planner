@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useRef } from 'react';
+import { createContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { handleFirebaseLogin, handleLogout, getStoredUser, isAuthenticated } from '../services/authService';
@@ -6,7 +6,7 @@ import { handleFirebaseLogin, handleLogout, getStoredUser, isAuthenticated } fro
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => isAuthenticated() ? (getStoredUser() || null) : null);
   const [loading, setLoading] = useState(true);
   const skipAuthStateChange = useRef(false);
 
